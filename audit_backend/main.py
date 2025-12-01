@@ -3,17 +3,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 import uvicorn
+import re
 
-# 引入服务
+# Import Services
 from services.llm_extractor import extract_citations_from_text
 from services.openalex import search_paper_on_openalex
+from services.google_search import verify_with_google_search
 from services.auditor import verify_content_consistency
-# from services.perplexity import verify_with_perplexity_fallback  <-- 删除这行
-from services.google_search import verify_with_google_search  # <-- 新增这行
+from services.semantic_scholar import search_paper_on_semantic_scholar
 
-app = FastAPI(title="Realibuddy Audit Engine")
+app = FastAPI(title="Veru Audit Engine")
 
-# 允许跨域
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -36,70 +36,103 @@ class AuditResult(BaseModel):
     confidence: float
 
 
+def get_clean_year(year_val):
+    """Helper to extract 4-digit year string"""
+    return "".join(filter(str.isdigit, str(year_val or "")))
+
+
 @app.post("/api/audit", response_model=List[AuditResult])
 def audit_citations(request: AuditRequest):
-    # Phase 1: 提取
     citations = extract_citations_from_text(request.text)
-
     results = []
 
-    # Phase 2 & 3: 循环审计
     for cit in citations:
-        print(f"--- 审计文献: {cit.title} ---")
+        print(f"--- Auditing: {cit.title} ---")
 
-        # === 路径 A: 查 OpenAlex ===
+        # 1. OpenAlex 查询
         oa_result = search_paper_on_openalex(cit.title, cit.author)
 
-        if oa_result["found"]:
-            print(f"✅ OpenAlex 找到文献 (ID: {oa_result['id']})")
+        # 初始化最佳结果为 OpenAlex
+        best_result = oa_result
+        source_name = "OpenAlex"
 
-            # === Phase 3: 内容一致性核查 (Layer 2 Audit) ===
-            print("正在进行内容比对...")
+        # 检查 OpenAlex 的年份匹配情况
+        cit_year = get_clean_year(cit.year)
+        oa_year = get_clean_year(oa_result.get("year"))
+        is_oa_year_match = (cit_year == oa_year) if (cit_year and oa_year) else True
+
+        # === 关键改进：竞优逻辑 ===
+        # 触发条件：OpenAlex 没找到，或者找到了但年份不对
+        if not oa_result["found"] or (oa_result["found"] and not is_oa_year_match):
+            print(
+                f"⚠️ OpenAlex result imperfect (Found: {oa_result['found']}, Year Match: {is_oa_year_match}). Checking Semantic Scholar...")
+
+            s2_result = search_paper_on_semantic_scholar(cit.title, cit.author)
+
+            if s2_result["found"]:
+                s2_year = get_clean_year(s2_result.get("year"))
+                is_s2_year_match = (cit_year == s2_year) if (cit_year and s2_year) else True
+
+                # 决策点 1: OpenAlex 没找到，S2 找到了 -> 用 S2
+                if not oa_result["found"]:
+                    print("✅ Using Semantic Scholar (OpenAlex missed)")
+                    best_result = s2_result
+                    source_name = "Semantic Scholar"
+
+                # 决策点 2: 都有结果，但 OpenAlex 年份错，S2 年份对 -> 用 S2
+                elif not is_oa_year_match and is_s2_year_match:
+                    print(f"✅ Switching to Semantic Scholar (Better Year Match: {s2_year} vs OA {oa_year})")
+                    best_result = s2_result
+                    source_name = "Semantic Scholar"
+
+                # 决策点 3: 都有结果，年份都错 -> 保持 OpenAlex (或者对比引用数，这里暂略)
+
+        # 3. 执行审计 (使用最终选定的 best_result)
+        if best_result["found"]:
+            print(f"Checking content consistency (Source: {source_name})...")
             consistency_check = verify_content_consistency(
                 user_claim=cit.summary_intent + " " + " ".join(cit.specific_claims),
-                real_abstract=oa_result.get("abstract", "")
+                real_abstract=best_result.get("abstract", "")
             )
 
             final_status = consistency_check.get("status", "REAL")
-            explanation = consistency_check.get("reason", "验证通过")
+            explanation = consistency_check.get("reason", "Verification passed.")
+
+            # 再次检查年份 (针对最终选定的结果)
+            db_year = get_clean_year(best_result.get("year"))
+
+            if final_status == "REAL" and len(cit_year) == 4 and len(db_year) == 4:
+                if cit_year != db_year:
+                    if int(db_year) > int(cit_year):
+                        explanation += f" (Note: Database lists a later version from {db_year}). Please double check."
+                    else:
+                        final_status = "MINOR_ERROR"
+                        explanation += f" Note: Year mismatch (Cited: {cit_year}, DB: {db_year})."
 
             result = AuditResult(
                 citation_text=cit.raw_text,
                 status=final_status,
-                source="OpenAlex",
+                source=source_name,
                 confidence=consistency_check.get("confidence", 1.0),
-                metadata=oa_result,
-                message=f"文献存在。内容核查: {final_status} - {explanation}"
+                metadata=best_result,
+                message=f"Citation found. Content Audit: {final_status} - {explanation}"
             )
 
         else:
-            # === 路径 B: Google Search (Gemini) 兜底 ===
-            # 原来的 Perplexity 逻辑替换为 Google Search
-            print("❌ OpenAlex 未找到，切换 Google Search...")
+            # 4. 最后的兜底：Google Search
+            print("❌ Databases failed, switching to Google Search...")
+            gs_result = verify_with_google_search(cit.title, cit.author, cit.summary_intent)
 
-            gs_result = verify_with_google_search(
-                cit.title,
-                cit.author,
-                cit.summary_intent
-            )
-
-            # 映射状态
-            status_map = {
-                "REAL": "REAL",
-                "FAKE": "FAKE",
-                "MISMATCH": "MISMATCH",  # Google Search 也可以返回 MISMATCH
-                "UNVERIFIED": "UNVERIFIED"
-            }
-
+            status_map = {"REAL": "REAL", "FAKE": "FAKE", "MISMATCH": "MISMATCH", "UNVERIFIED": "UNVERIFIED"}
             g_status = status_map.get(gs_result.get("verdict"), "UNVERIFIED")
 
             result = AuditResult(
                 citation_text=cit.raw_text,
                 status=g_status,
-                source="Google Search",  # 来源变了
+                source="Google Search",
                 confidence=gs_result.get("confidence", 0.0),
                 metadata={"reason": gs_result.get("reason"), "info": gs_result.get("actual_paper_info")},
-                message=f"数据库未收录。Google 搜索判定: {g_status} - {gs_result.get('reason')}"
+                message=f"Not found in academic databases. Google Search verdict: {g_status} - {gs_result.get('reason')}"
             )
 
         results.append(result)
