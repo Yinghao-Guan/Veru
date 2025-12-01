@@ -4,22 +4,23 @@ import { useState } from 'react';
 import { BookOpen, AlertCircle, CheckCircle, Search, AlertTriangle, Loader2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
-// 定义 Logo 组件 (直接复用我们设计的 SVG)
+// ✅ 更新：Logo 渐变色改为 "Blue-600" 到 "Cyan-500"
 function VeruLogo() {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
       viewBox="0 0 512 512"
-      className="w-8 h-8 mr-2" // 控制大小和间距
+      className="w-8 h-8 mr-2"
     >
       <defs>
         <linearGradient id="logo_grad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" style={{ stopColor: '#4F46E5', stopOpacity: 1 }} />
+          {/* 起始色改为了 Tailwind Blue-600 (#2563EB) */}
+          <stop offset="0%" style={{ stopColor: '#2563EB', stopOpacity: 1 }} />
+          {/* 结束色保持 Cyan-500 (#06B6D4) 增加层次感 */}
           <stop offset="100%" style={{ stopColor: '#06B6D4', stopOpacity: 1 }} />
         </linearGradient>
       </defs>
       <rect width="512" height="512" rx="128" fill="url(#logo_grad)" />
-      {/* V Shape / Checkmark (白色线条) */}
       <path
         d="M140 200 L210 340 L380 140"
         stroke="white"
@@ -32,7 +33,6 @@ function VeruLogo() {
   );
 }
 
-// 定义后端返回的数据结构
 interface AuditResult {
   citation_text: string;
   status: 'REAL' | 'FAKE' | 'MISMATCH' | 'UNVERIFIED' | 'SUSPICIOUS';
@@ -76,7 +76,6 @@ export default function Home() {
       <header className="bg-white border-b border-slate-200 sticky top-0 z-10 shadow-sm">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center">
-            {/* 使用自定义 Logo 组件 */}
             <VeruLogo />
             <span className="text-xl font-bold tracking-tight text-slate-900">Veru</span>
           </div>
@@ -90,9 +89,11 @@ export default function Home() {
 
         {/* Left Column: Input */}
         <div className="flex flex-col space-y-4">
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex-1 flex flex-col transition-all focus-within:ring-2 focus-within:ring-indigo-100 focus-within:border-indigo-300">
+          {/* ✅ 更新：Focus ring 改为 blue */}
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex-1 flex flex-col transition-all focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-300">
             <label className="text-sm font-semibold text-slate-700 mb-3 flex items-center">
-              <Search className="w-4 h-4 mr-2 text-indigo-500" />
+              {/* ✅ 更新：Icon 颜色改为 blue */}
+              <Search className="w-4 h-4 mr-2 text-blue-500" />
               Source Text (Paste ChatGPT response here)
             </label>
             <textarea
@@ -105,7 +106,8 @@ export default function Home() {
               <button
                 onClick={handleAudit}
                 disabled={loading || !inputText}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-lg font-medium transition-colors flex items-center disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow-md active:transform active:scale-95"
+                // ✅ 更新：按钮背景改为 blue
+                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg font-medium transition-colors flex items-center disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow-md active:transform active:scale-95"
               >
                 {loading ? (
                   <>
@@ -123,30 +125,29 @@ export default function Home() {
         {/* Right Column: Results */}
         <div className="flex flex-col space-y-4 overflow-y-auto pb-10">
 
-          {/* 空状态：保留 BookOpen，因为它代表"准备好阅读文献" */}
           {!results && !loading && (
             <div className="flex-1 flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50/50">
               <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm mb-4">
-                <BookOpen className="w-8 h-8 text-indigo-200" />
+                {/* ✅ 更新：图标颜色改为 blue-200 */}
+                <BookOpen className="w-8 h-8 text-blue-200" />
               </div>
               <p className="font-medium text-slate-500">Ready to audit</p>
               <p className="text-sm text-slate-400 mt-1">Paste text on the left to begin</p>
             </div>
           )}
 
-          {/* 加载状态 */}
           {loading && (
             <div className="flex-1 flex flex-col items-center justify-center">
               <div className="text-center space-y-4">
                 <div className="relative">
-                  <div className="w-12 h-12 border-4 border-indigo-100 rounded-full animate-spin border-t-indigo-600"></div>
+                  {/* ✅ 更新：Loading 动画改为 blue */}
+                  <div className="w-12 h-12 border-4 border-blue-100 rounded-full animate-spin border-t-blue-600"></div>
                 </div>
                 <p className="text-slate-500 text-sm font-medium animate-pulse">Running forensic analysis...</p>
               </div>
             </div>
           )}
 
-          {/* 无结果状态 */}
           {results && results.length === 0 && (
              <div className="p-4 rounded-lg bg-orange-50 border border-orange-100 text-orange-800 flex items-start">
                 <AlertTriangle className="w-5 h-5 mr-3 mt-0.5 flex-shrink-0" />
@@ -157,7 +158,6 @@ export default function Home() {
              </div>
           )}
 
-          {/* 结果列表 */}
           {results && results.map((res, idx) => (
             <AuditCard key={idx} result={res} />
           ))}
@@ -167,7 +167,6 @@ export default function Home() {
   );
 }
 
-// 审计卡片组件 (保持不变，或者微调样式)
 function AuditCard({ result }: { result: AuditResult }) {
   const getStatusConfig = (status: string) => {
     switch (status) {
@@ -216,8 +215,9 @@ function AuditCard({ result }: { result: AuditResult }) {
             <div className="text-slate-700 font-medium">
                {result.metadata.title} ({result.metadata.year})
             </div>
+            {/* ✅ 更新：链接 hover 颜色改为 blue */}
             {result.metadata.oa_url && (
-                <a href={result.metadata.oa_url} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-800 hover:underline mt-1 inline-flex items-center transition-colors">
+                <a href={result.metadata.oa_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 hover:underline mt-1 inline-flex items-center transition-colors">
                     View Full Text <span className="ml-1">→</span>
                 </a>
             )}
