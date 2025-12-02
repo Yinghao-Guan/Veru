@@ -64,11 +64,11 @@ def get_clean_year(year_val):
 @limiter.limit("10/minute")
 def audit_citations(request: Request, body: AuditRequest):  # 👈 修改这里
     """
-    request: 必须叫这个名字，且类型为 Request，供 slowapi 获取 IP 使用。
-    body: 你的 Pydantic 模型，FastAPI 会自动把 JSON 里的内容放进来。
+    request: 类型为 Request，供 slowapi 获取 IP 使用。
+    body: Pydantic 模型，FastAPI 会自动把 JSON 里的内容放进来。
     """
 
-    # 👇 这里也要改，从 body 中获取 text
+    # 从 body 中获取 text
     citations = extract_citations_from_text(body.text)
 
     results = []
@@ -76,7 +76,7 @@ def audit_citations(request: Request, body: AuditRequest):  # 👈 修改这里
     for cit in citations:
         print(f"--- Auditing: {cit.title} ---")
 
-        # 1. OpenAlex 查询
+        # OpenAlex 查询
         oa_result = search_paper_on_openalex(cit.title, cit.author)
 
         # 初始化最佳结果为 OpenAlex
@@ -88,7 +88,7 @@ def audit_citations(request: Request, body: AuditRequest):  # 👈 修改这里
         oa_year = get_clean_year(oa_result.get("year"))
         is_oa_year_match = (cit_year == oa_year) if (cit_year and oa_year) else True
 
-        # === 关键改进：竞优逻辑 ===
+        # === 竞优逻辑 ===
         # 触发条件：OpenAlex 没找到，或者找到了但年份不对
         if not oa_result["found"] or (oa_result["found"] and not is_oa_year_match):
             print(
