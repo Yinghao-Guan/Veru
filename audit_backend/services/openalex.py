@@ -31,7 +31,6 @@ def check_author_match(query_author: str, paper_authors: list) -> bool:
 
 
 def get_similarity_score(str1: str, str2: str) -> float:
-    # 移除标点符号，提高纯文本匹配度
     s1 = re.sub(r'[^\w\s]', '', str1.lower())
     s2 = re.sub(r'[^\w\s]', '', str2.lower())
     return difflib.SequenceMatcher(None, s1, s2).ratio()
@@ -47,19 +46,25 @@ def fetch_from_openalex(params: dict) -> list:
     return []
 
 
-def search_paper_on_openalex(title: str, author: Optional[str] = None) -> Dict[str, Any]:
+def search_paper_on_openalex(title: Optional[str], author: Optional[str] = None) -> Dict[str, Any]:
+    # 🛡️ 关键修复：如果 title 是 None，直接返回 False，防止崩溃
+    if not title:
+        return {"found": False, "reason": "No title extracted"}
+
     clean_title = title.replace('"', '').replace("'", "").replace("“", "").replace("”", "").strip()
+
+    # 再次检查清洗后是否为空
     if len(clean_title) < 3:
         return {"found": False, "reason": "Title is too short"}
 
     # 策略 1: 宽泛搜索
     results = fetch_from_openalex({
         "search": clean_title,
-        "per_page": 20,  # 抓更多结果，增加抓到原版的概率
+        "per_page": 20,
         "mailto": "audit_test@realibuddy.com"
     })
 
-    # 策略 2: 如果标题长且没结果，尝试精确过滤
+    # 策略 2: 精准过滤
     if not results and len(clean_title.split()) > 2:
         results = fetch_from_openalex({
             "filter": f"title.search:{clean_title}",
@@ -70,9 +75,8 @@ def search_paper_on_openalex(title: str, author: Optional[str] = None) -> Dict[s
     if not results:
         return {"found": False, "reason": "No matches found in OpenAlex"}
 
-    # === 关键改进：分层排序逻辑 (Tiered Sorting) ===
+    # 评分逻辑
     candidates = []
-
     for paper in results:
         paper_authors = [a["author"]["display_name"] for a in paper.get("authorships", [])]
         paper_title = paper.get("title", "") or ""
@@ -80,40 +84,32 @@ def search_paper_on_openalex(title: str, author: Optional[str] = None) -> Dict[s
         is_auth_match = check_author_match(author, paper_authors)
         title_sim = get_similarity_score(clean_title, paper_title)
 
+        if author and not is_auth_match:
+            title_sim *= 0.5
+
+        normalized_score = title_sim
+        citations = paper.get("cited_by_count", 0)
+
+        if title_sim > 0.85:
+            if citations > 1000:
+                normalized_score += 2.0
+            elif citations > 50:
+                normalized_score += 1.0
+
         candidates.append({
             "paper": paper,
-            "score": title_sim,
-            "is_auth_match": is_auth_match,
-            "citations": paper.get("cited_by_count", 0)
+            "sort_key": normalized_score,
+            "raw_score": title_sim
         })
 
-    # Tier 1: 完美候选人 (标题极其相似 + 作者匹配)
-    # 在这个梯队里，我们完全只看引用数，谁引用多谁就是原版
-    tier_1 = [c for c in candidates if c['score'] > 0.85 and c['is_auth_match']]
+    candidates.sort(key=lambda x: (x['sort_key'], x['paper'].get('cited_by_count', 0)), reverse=True)
 
-    if tier_1:
-        # 绝对引用数优先！
-        tier_1.sort(key=lambda x: x['citations'], reverse=True)
-        best_candidate = tier_1[0]
-    else:
-        # Tier 2: 混战模式 (作者不匹配或标题不太像)
-        # 此时需要权衡相似度和引用数
-        def fallback_sort_key(x):
-            score = x['score']
-            if x['is_auth_match']: score += 0.5  # 作者匹配加分
-            # 引用数只是辅助加分
-            if x['citations'] > 1000: score += 0.2
-            return score
+    best_candidate = candidates[0]
 
-        candidates.sort(key=fallback_sort_key, reverse=True)
-        best_candidate = candidates[0]
-
-    # 阈值检查
-    if best_candidate['score'] < 0.6:
-        return {"found": False, "reason": f"Low similarity match ({best_candidate['score']:.2f})"}
+    if best_candidate['raw_score'] < 0.6:
+        return {"found": False, "reason": f"Low similarity match ({best_candidate['raw_score']:.2f})"}
 
     best_paper = best_candidate['paper']
-
     abstract_text = ""
     inverted_idx = best_paper.get("abstract_inverted_index")
     if inverted_idx:
