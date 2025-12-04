@@ -16,7 +16,7 @@ class CitationData(BaseModel):
     raw_text: str
     title: Optional[str] = None
     author: Optional[str] = None
-    year: Optional[str] = None  # 虽然这里定义是 str，但我们在下面代码里会强制转换
+    year: Optional[str] = None  # 虽然这里定义是 str，但在下面代码里会强制转换
     summary_intent: str
     specific_claims: List[str] = []
 
@@ -78,8 +78,7 @@ def extract_citations_from_text(text: str) -> List[CitationData]:
             if 'specific_claims' not in item or item['specific_claims'] is None:
                 item['specific_claims'] = []
 
-            # === 关键修复：类型强制转换 ===
-            # 无论 Gemini 返回的是 int 1992 还是 str "1992"，都转成 str
+            # 类型强制转换 - 无论 Gemini 返回的是 int 1992 还是 str "1992"，都转成 str
             if 'year' in item and item['year'] is not None:
                 item['year'] = str(item['year'])
 

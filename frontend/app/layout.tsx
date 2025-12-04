@@ -6,7 +6,7 @@ import { Analytics } from "@vercel/analytics/react";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://veru.app'), // 👈 必须设置，用于解析相对路径
+  metadataBase: new URL('https://veru.app'),
   title: {
     default: "Veru | AI Citation Checker & Hallucination Detector",
     template: "%s | Veru"
@@ -28,10 +28,9 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: "Veru - AI Citation Auditor",
     description: "Detect fake AI citations instantly.",
-    // creator: "@veru_app", // 如果你有推特账号的话，没有可以先留空
   },
   icons: {
-    icon: '/icon', // 对应我们之前写的 icon.tsx
+    icon: '/icon',
   },
   robots: {
     index: true,

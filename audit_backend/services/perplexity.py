@@ -19,12 +19,12 @@ def verify_with_perplexity_fallback(title: str, author: str, claim_summary: str)
     支持 Mock 模式以进行免费开发测试。
     """
 
-    # 1. Mock 模式 (开发专用)
+    # Mock 模式 (开发专用)
     if MOCK_MODE or not PERPLEXITY_API_KEY:
         print(f"[Perplexity] ⚠️ MOCK MODE ACTIVATED: Simulating search for '{title}'...")
         time.sleep(1.5)  # 模拟网络延迟
 
-        # 这里我们伪造一个"查到了"的结果，就像 Perplexity 真的工作了一样
+        # 这里伪造一个"查到了"的结果，就像 Perplexity 真的工作了一样
         return {
             "verdict": "REAL",
             "confidence": 0.95,
@@ -32,7 +32,7 @@ def verify_with_perplexity_fallback(title: str, author: str, claim_summary: str)
             "actual_paper_info": f"{title} by {author} (1999)"
         }
 
-    # 2. 真实 API 调用逻辑 (保持不变)
+    # 真实 API 调用逻辑
     url = "https://api.perplexity.ai/chat/completions"
 
     system_prompt = """
@@ -92,7 +92,7 @@ def verify_with_perplexity_fallback(title: str, author: str, claim_summary: str)
     try:
         response = requests.post(url, json=payload, headers=headers)
         if response.status_code != 200:
-            # 如果 API 报错（如 401），我们也可以在这里做一个 fallback，防止前端炸裂
+            # 如果 API 报错（如 401），也可以在这里做一个 fallback，防止前端炸裂
             return {"verdict": "ERROR", "reason": f"API Error {response.text}"}
 
         result = response.json()

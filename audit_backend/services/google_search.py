@@ -12,12 +12,10 @@ API_KEY = os.getenv("GEMINI_API_KEY")
 def verify_with_google_search(title: str, author: str, claim_summary: str) -> dict:
     """
     使用 REST API 直接调用 Gemini 2.0 Flash + Google Search。
-    包含：碎片拼接 + 智能 JSON 提取 (解决重复输出问题)。
+    包含：碎片拼接 + 智能 JSON 提取。
     """
 
-    # ⬇️⬇️⬇️ 关键修正：确保这里是纯净的 URL 字符串，没有 [] 或 () ⬇️⬇️⬇️
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={API_KEY}"
-    # ⬆️⬆️⬆️ 关键修正 ⬆️⬆️⬆️
 
     prompt = f"""
     You are an academic auditor. Your goal is to verify if a specific paper exists using Google Search.
@@ -102,7 +100,7 @@ def verify_with_google_search(title: str, author: str, claim_summary: str) -> di
         # === 核心解析逻辑 ===
         try:
             parts = candidate['content']['parts']
-            # 1. 拼接碎片
+            # 拼接碎片
             raw_text = "".join([part.get('text', '') for part in parts])
 
             # 清洗 Markdown 标记
@@ -110,7 +108,7 @@ def verify_with_google_search(title: str, author: str, claim_summary: str) -> di
             text_content = re.sub(r'```$', '', text_content.strip(), flags=re.MULTILINE)
             text_content = text_content.strip()
 
-            # 2. 智能截取第一个 JSON 对象
+            # 智能截取第一个 JSON 对象
             start_idx = text_content.find('{')
             if start_idx == -1:
                 raise ValueError("No JSON object found (missing '{')")

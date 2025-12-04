@@ -98,7 +98,7 @@ export default function Home() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<HistoryItem[]>([]);
 
-  // 新增：示例索引，用于轮播
+  // 示例索引，用于轮播
   const [exampleIndex, setExampleIndex] = useState(0);
 
   useEffect(() => {
@@ -142,7 +142,7 @@ export default function Home() {
     }
   };
 
-  // 新增：处理点击“试一试”
+  // 处理点击“试一试”
   const handleTryExample = () => {
     const example = EXAMPLES[exampleIndex];
     setInputText(example);
@@ -255,7 +255,7 @@ export default function Home() {
                         </label>
                     </div>
 
-                    {/* 👇 新增：Try Example 按钮 */}
+                    {/* Try Example 按钮 */}
                     <button
                         onClick={handleTryExample}
                         className="text-xs font-bold text-blue-600 bg-white hover:bg-blue-50 border border-blue-100 px-3 py-1.5 rounded-lg flex items-center transition-colors shadow-sm"
@@ -294,7 +294,7 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Right: Results (Unchanged) */}
+            {/* Right: Results */}
             <div className="flex flex-col h-full overflow-hidden">
                 <div className="bg-slate-50 rounded-2xl border border-slate-200 flex-1 flex flex-col overflow-hidden relative">
                     <div className="bg-white/80 backdrop-blur border-b border-slate-200 px-4 py-3 flex items-center">

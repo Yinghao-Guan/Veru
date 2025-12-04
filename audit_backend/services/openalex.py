@@ -47,7 +47,7 @@ def fetch_from_openalex(params: dict) -> list:
 
 
 def search_paper_on_openalex(title: Optional[str], author: Optional[str] = None) -> Dict[str, Any]:
-    # 🛡️ 关键修复：如果 title 是 None，直接返回 False，防止崩溃
+    # 如果 title 是 None，直接返回 False，防止崩溃
     if not title:
         return {"found": False, "reason": "No title extracted"}
 

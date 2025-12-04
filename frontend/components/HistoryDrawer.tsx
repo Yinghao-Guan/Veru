@@ -26,7 +26,7 @@ interface HistoryDrawerProps {
   onSelect: (item: HistoryItem) => void;
   history: HistoryItem[];
   onClear: () => void;
-  t: Translation; // ✅ 新增：接收翻译字典
+  t: Translation; // 接收翻译字典
 }
 
 export default function HistoryDrawer({ isOpen, onClose, onSelect, history, onClear, t }: HistoryDrawerProps) {

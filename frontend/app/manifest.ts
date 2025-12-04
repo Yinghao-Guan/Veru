@@ -11,7 +11,7 @@ export default function manifest(): MetadataRoute.Manifest {
     theme_color: '#4F46E5',
     icons: [
       {
-        src: '/icon', // Next.js 会自动映射到我们刚才写的 icon.tsx
+        src: '/icon',
         sizes: 'any',
         type: 'image/png',
       },

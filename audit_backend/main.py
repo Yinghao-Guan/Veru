@@ -5,7 +5,7 @@ from typing import List, Optional
 import uvicorn
 import re
 
-# 👇 引入限流库
+# 引入限流库
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -17,12 +17,12 @@ from services.google_search import verify_with_google_search
 from services.auditor import verify_content_consistency
 from services.semantic_scholar import search_paper_on_semantic_scholar
 
-# 👇 初始化限流器 (基于请求者的 IP 地址)
+# 初始化限流器 (基于请求者的 IP 地址)
 limiter = Limiter(key_func=get_remote_address)
 
 app = FastAPI(title="Veru Audit Engine")
 
-# 👇 将限流器挂载到 App
+# 将限流器挂载到 App
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -62,7 +62,7 @@ def get_clean_year(year_val):
 
 @app.post("/api/audit", response_model=List[AuditResult])
 @limiter.limit("10/minute")
-def audit_citations(request: Request, body: AuditRequest):  # 👈 修改这里
+def audit_citations(request: Request, body: AuditRequest):
     """
     request: 类型为 Request，供 slowapi 获取 IP 使用。
     body: Pydantic 模型，FastAPI 会自动把 JSON 里的内容放进来。
@@ -112,7 +112,7 @@ def audit_citations(request: Request, body: AuditRequest):  # 👈 修改这里
                     best_result = s2_result
                     source_name = "Semantic Scholar"
 
-                # 决策点 3: 都有结果，年份都错 -> 保持 OpenAlex (或者对比引用数，这里暂略)
+                # 决策点 3: 都有结果，年份都错 -> 保持 OpenAlex (或者对比引用数，未来可添加)
 
         # 3. 执行审计 (使用最终选定的 best_result)
         if best_result["found"]:

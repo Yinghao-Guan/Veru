@@ -10,7 +10,7 @@ export default function Icon() {
       <div
         style={{
           fontSize: 24,
-          // ✅ 更新：起始色改为 #2563EB (Blue-600)
+          // 起始色改为 #2563EB (Blue-600)
           background: 'linear-gradient(135deg, #2563EB 0%, #06B6D4 100%)',
           width: '100%',
           height: '100%',
