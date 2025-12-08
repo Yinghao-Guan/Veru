@@ -1,7 +1,7 @@
 import os
 import json
 import re
-import requests
+import httpx
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -9,12 +9,7 @@ load_dotenv()
 API_KEY = os.getenv("GEMINI_API_KEY")
 
 
-def verify_with_google_search(title: str, author: str, claim_summary: str) -> dict:
-    """
-    使用 REST API 直接调用 Gemini 2.0 Flash + Google Search。
-    包含：碎片拼接 + 智能 JSON 提取。
-    """
-
+async def verify_with_google_search(title: str, author: str, claim_summary: str) -> dict:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={API_KEY}"
 
     prompt = f"""
@@ -66,7 +61,8 @@ def verify_with_google_search(title: str, author: str, claim_summary: str) -> di
     headers = {"Content-Type": "application/json"}
 
     try:
-        response = requests.post(url, json=payload, headers=headers)
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(url, json=payload, headers=headers)
 
         if response.status_code != 200:
             print(f"[Google Search API Error] Status: {response.status_code}")

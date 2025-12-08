@@ -1,4 +1,4 @@
-import requests
+import httpx
 import difflib
 import re
 from typing import Optional, Dict, Any
@@ -36,17 +36,20 @@ def get_similarity_score(str1: str, str2: str) -> float:
     return difflib.SequenceMatcher(None, s1, s2).ratio()
 
 
-def fetch_from_openalex(params: dict) -> list:
+async def fetch_from_openalex(params: dict) -> list:
     try:
-        response = requests.get("https://api.openalex.org/works", params=params, timeout=20)
-        if response.status_code == 200:
-            return response.json().get("results", [])
-    except:
+        # 使用异步上下文管理器
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.get("https://api.openalex.org/works", params=params)
+            if response.status_code == 200:
+                return response.json().get("results", [])
+    except Exception as e:
+        print(f"[OpenAlex Error] {e}")
         pass
     return []
 
 
-def search_paper_on_openalex(title: Optional[str], author: Optional[str] = None) -> Dict[str, Any]:
+async def search_paper_on_openalex(title: Optional[str], author: Optional[str] = None) -> Dict[str, Any]:
     # 如果 title 是 None，直接返回 False，防止崩溃
     if not title:
         return {"found": False, "reason": "No title extracted"}
@@ -58,18 +61,18 @@ def search_paper_on_openalex(title: Optional[str], author: Optional[str] = None)
         return {"found": False, "reason": "Title is too short"}
 
     # 策略 1: 宽泛搜索
-    results = fetch_from_openalex({
+    results = await fetch_from_openalex({
         "search": clean_title,
         "per_page": 20,
-        "mailto": "audit_test@realibuddy.com"
+        "mailto": "audit_test@veru.app"
     })
 
     # 策略 2: 精准过滤
     if not results and len(clean_title.split()) > 2:
-        results = fetch_from_openalex({
+        results = await fetch_from_openalex({
             "filter": f"title.search:{clean_title}",
             "per_page": 20,
-            "mailto": "audit_test@realibuddy.com"
+            "mailto": "audit_test@veru.app"
         })
 
     if not results:

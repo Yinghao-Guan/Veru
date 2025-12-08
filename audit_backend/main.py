@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field, validator
 from typing import List, Optional
 import uvicorn
 import re
+import asyncio
 
 # 引入限流库
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -67,116 +68,99 @@ def get_clean_year(year_val):
     return "".join(filter(str.isdigit, str(year_val or "")))
 
 
+# 将单条引用的处理逻辑提取为一个独立的异步函数
+async def process_single_citation(cit) -> AuditResult:
+    print(f"--- Auditing: {cit.title} ---")
+
+    # 1. OpenAlex 查询 (await)
+    oa_result = await search_paper_on_openalex(cit.title, cit.author)
+
+    best_result = oa_result
+    source_name = "OpenAlex"
+
+    # 检查年份
+    cit_year = get_clean_year(cit.year)
+    oa_year = get_clean_year(oa_result.get("year"))
+    is_oa_year_match = (cit_year == oa_year) if (cit_year and oa_year) else True
+
+    # 2. 竞优逻辑
+    if not oa_result["found"] or (oa_result["found"] and not is_oa_year_match):
+        # Semantic Scholar 查询 (await)
+        s2_result = await search_paper_on_semantic_scholar(cit.title, cit.author)
+
+        if s2_result["found"]:
+            s2_year = get_clean_year(s2_result.get("year"))
+            is_s2_year_match = (cit_year == s2_year) if (cit_year and s2_year) else True
+
+            if not oa_result["found"]:
+                best_result = s2_result
+                source_name = "Semantic Scholar"
+            elif not is_oa_year_match and is_s2_year_match:
+                best_result = s2_result
+                source_name = "Semantic Scholar"
+
+    # 3. 执行审计
+    if best_result["found"]:
+        # Content Check (await)
+        consistency_check = await verify_content_consistency(
+            user_claim=cit.summary_intent + " " + " ".join(cit.specific_claims),
+            real_abstract=best_result.get("abstract", "")
+        )
+
+        final_status = consistency_check.get("status", "REAL")
+        explanation = consistency_check.get("reason", "Verification passed.")
+
+        db_year = get_clean_year(best_result.get("year"))
+        if final_status == "REAL" and len(cit_year) == 4 and len(db_year) == 4:
+            if cit_year != db_year:
+                if int(db_year) > int(cit_year):
+                    explanation += f" (Note: Database lists a later version from {db_year})."
+                else:
+                    final_status = "MINOR_ERROR"
+                    explanation += f" Note: Year mismatch (Cited: {cit_year}, DB: {db_year})."
+
+        return AuditResult(
+            citation_text=cit.raw_text,
+            status=final_status,
+            source=source_name,
+            confidence=consistency_check.get("confidence", 1.0),
+            metadata=best_result,
+            message=f"Citation found. Content Audit: {final_status} - {explanation}"
+        )
+
+    else:
+        # 4. Google Search 兜底 (await)
+        gs_result = await verify_with_google_search(cit.title, cit.author, cit.summary_intent)
+
+        status_map = {"REAL": "REAL", "FAKE": "FAKE", "MISMATCH": "MISMATCH", "UNVERIFIED": "UNVERIFIED"}
+        g_status = status_map.get(gs_result.get("verdict"), "UNVERIFIED")
+
+        return AuditResult(
+            citation_text=cit.raw_text,
+            status=g_status,
+            source="Google Search",
+            confidence=gs_result.get("confidence", 0.0),
+            metadata={"reason": gs_result.get("reason"), "info": gs_result.get("actual_paper_info")},
+            message=f"Not found in academic databases. Google Search verdict: {g_status} - {gs_result.get('reason')}"
+        )
+
+
+# 主接口
 @app.post("/api/audit", response_model=List[AuditResult])
 @limiter.limit("10/minute")
-def audit_citations(request: Request, body: AuditRequest):
-    """
-    request: 类型为 Request，供 slowapi 获取 IP 使用。
-    body: Pydantic 模型，FastAPI 会自动把 JSON 里的内容放进来。
-    """
-
-    # 从 body 中获取 text
+async def audit_citations(request: Request, body: AuditRequest):
+    # 提取引用
     citations = extract_citations_from_text(body.text)
 
-    # 安全熔断：最多只处理前 10 个引用
-    # 如果用户真的有更多，让他们分批提交
+    # 安全熔断
     MAX_CITATIONS = 10
     if len(citations) > MAX_CITATIONS:
         citations = citations[:MAX_CITATIONS]
         print(f"⚠️ Truncated citations to {MAX_CITATIONS} for safety.")
 
-    results = []
-
-    for cit in citations:
-        print(f"--- Auditing: {cit.title} ---")
-
-        # OpenAlex 查询
-        oa_result = search_paper_on_openalex(cit.title, cit.author)
-
-        # 初始化最佳结果为 OpenAlex
-        best_result = oa_result
-        source_name = "OpenAlex"
-
-        # 检查 OpenAlex 的年份匹配情况
-        cit_year = get_clean_year(cit.year)
-        oa_year = get_clean_year(oa_result.get("year"))
-        is_oa_year_match = (cit_year == oa_year) if (cit_year and oa_year) else True
-
-        # === 竞优逻辑 ===
-        # 触发条件：OpenAlex 没找到，或者找到了但年份不对
-        if not oa_result["found"] or (oa_result["found"] and not is_oa_year_match):
-            print(
-                f"⚠️ OpenAlex result imperfect (Found: {oa_result['found']}, Year Match: {is_oa_year_match}). Checking Semantic Scholar...")
-
-            s2_result = search_paper_on_semantic_scholar(cit.title, cit.author)
-
-            if s2_result["found"]:
-                s2_year = get_clean_year(s2_result.get("year"))
-                is_s2_year_match = (cit_year == s2_year) if (cit_year and s2_year) else True
-
-                # 决策点 1: OpenAlex 没找到，S2 找到了 -> 用 S2
-                if not oa_result["found"]:
-                    print("✅ Using Semantic Scholar (OpenAlex missed)")
-                    best_result = s2_result
-                    source_name = "Semantic Scholar"
-
-                # 决策点 2: 都有结果，但 OpenAlex 年份错，S2 年份对 -> 用 S2
-                elif not is_oa_year_match and is_s2_year_match:
-                    print(f"✅ Switching to Semantic Scholar (Better Year Match: {s2_year} vs OA {oa_year})")
-                    best_result = s2_result
-                    source_name = "Semantic Scholar"
-
-                # 决策点 3: 都有结果，年份都错 -> 保持 OpenAlex (或者对比引用数，未来可添加)
-
-        # 3. 执行审计 (使用最终选定的 best_result)
-        if best_result["found"]:
-            print(f"Checking content consistency (Source: {source_name})...")
-            consistency_check = verify_content_consistency(
-                user_claim=cit.summary_intent + " " + " ".join(cit.specific_claims),
-                real_abstract=best_result.get("abstract", "")
-            )
-
-            final_status = consistency_check.get("status", "REAL")
-            explanation = consistency_check.get("reason", "Verification passed.")
-
-            # 再次检查年份 (针对最终选定的结果)
-            db_year = get_clean_year(best_result.get("year"))
-
-            if final_status == "REAL" and len(cit_year) == 4 and len(db_year) == 4:
-                if cit_year != db_year:
-                    if int(db_year) > int(cit_year):
-                        explanation += f" (Note: Database lists a later version from {db_year}, please double check)."
-                    else:
-                        final_status = "MINOR_ERROR"
-                        explanation += f" Note: Year mismatch (Cited: {cit_year}, DB: {db_year})."
-
-            result = AuditResult(
-                citation_text=cit.raw_text,
-                status=final_status,
-                source=source_name,
-                confidence=consistency_check.get("confidence", 1.0),
-                metadata=best_result,
-                message=f"Citation found. Content Audit: {final_status} - {explanation}"
-            )
-
-        else:
-            # 4. 最后的兜底：Google Search
-            print("❌ Databases failed, switching to Google Search...")
-            gs_result = verify_with_google_search(cit.title, cit.author, cit.summary_intent)
-
-            status_map = {"REAL": "REAL", "FAKE": "FAKE", "MISMATCH": "MISMATCH", "UNVERIFIED": "UNVERIFIED"}
-            g_status = status_map.get(gs_result.get("verdict"), "UNVERIFIED")
-
-            result = AuditResult(
-                citation_text=cit.raw_text,
-                status=g_status,
-                source="Google Search",
-                confidence=gs_result.get("confidence", 0.0),
-                metadata={"reason": gs_result.get("reason"), "info": gs_result.get("actual_paper_info")},
-                message=f"Not found in academic databases. Google Search verdict: {g_status} - {gs_result.get('reason')}"
-            )
-
-        results.append(result)
+    # 并发执行所有引用的核查任务
+    # 使用 asyncio.gather 同时启动所有任务
+    results = await asyncio.gather(*[process_single_citation(cit) for cit in citations])
 
     return results
 

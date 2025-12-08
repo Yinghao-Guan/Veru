@@ -7,7 +7,7 @@ load_dotenv()
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 
-def verify_content_consistency(user_claim: str, real_abstract: str) -> dict:
+async def verify_content_consistency(user_claim: str, real_abstract: str) -> dict:
     if not real_abstract or len(real_abstract) < 20:
         return {
             "status": "UNVERIFIED",
@@ -47,7 +47,11 @@ def verify_content_consistency(user_claim: str, real_abstract: str) -> dict:
     """
 
     try:
-        response = model.generate_content(prompt, generation_config={"response_mime_type": "application/json"})
+        # 使用 await 和 generate_content_async
+        response = await model.generate_content_async(
+            prompt,
+            generation_config={"response_mime_type": "application/json"}
+        )
         return json.loads(response.text)
     except Exception as e:
         return {

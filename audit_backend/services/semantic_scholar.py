@@ -1,19 +1,13 @@
-import requests
+import httpx
 import difflib
 from typing import Optional, Dict, Any
 
 
-def search_paper_on_semantic_scholar(title: str, author: Optional[str] = None) -> Dict[str, Any]:
-    """
-    在 Semantic Scholar 中搜索论文。
-    """
+async def search_paper_on_semantic_scholar(title: str, author: Optional[str] = None) -> Dict[str, Any]:
     if not title or len(title) < 3:
         return {"found": False, "reason": "Title too short"}
 
-    # 使用 Graph API 的 search endpoint
     url = "https://api.semanticscholar.org/graph/v1/paper/search"
-
-    # 限制返回字段：title, authors, year, abstract, openAccessPdf, citationCount
     params = {
         "query": title,
         "limit": 5,
@@ -21,7 +15,8 @@ def search_paper_on_semantic_scholar(title: str, author: Optional[str] = None) -
     }
 
     try:
-        response = requests.get(url, params=params, timeout=20)
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.get(url, params=params)
 
         if response.status_code != 200:
             return {"found": False, "reason": f"S2 API Error {response.status_code}"}
