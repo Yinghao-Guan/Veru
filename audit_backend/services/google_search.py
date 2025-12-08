@@ -1,6 +1,5 @@
 import os
 import json
-import re
 import httpx
 from dotenv import load_dotenv
 
@@ -10,35 +9,57 @@ API_KEY = os.getenv("GEMINI_API_KEY")
 
 
 async def verify_with_google_search(title: str, author: str, claim_summary: str) -> dict:
+    """
+    使用 Gemini 2.0 Flash + Google Search 进行全网核查。
+    优化点：使用 JSON Schema 强制结构化输出。
+    """
+
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={API_KEY}"
 
+    # Prompt 可以更加专注于“思考逻辑”，而不用操心“格式”
     prompt = f"""
-    You are an academic auditor. Your goal is to verify if a specific paper exists using Google Search.
+    You are an academic auditor. Verify if this specific paper exists using Google Search.
 
     Target Paper:
     - Title: "{title}"
     - Author: "{author}"
 
-    User's Summary of the paper:
+    User's Claim/Summary:
     "{claim_summary}"
 
     INSTRUCTIONS:
     1. Use Google Search to find this paper.
-    2. If you cannot find a paper with this SPECIFIC title and author, mark it as FAKE.
-    3. If you find it, compare the real abstract/content with the User's Summary.
-
-    Output JSON format:
-    {{
-        "verdict": "REAL" | "FAKE" | "MISMATCH",
-        "confidence": 0.0 to 1.0,
-        "reason": "Brief explanation citing what you found on Google.",
-        "actual_paper_info": "Title and Author if found, else null"
-    }}
-
-    IMPORTANT: 
-    - You MUST output valid JSON.
-    - Do not output markdown code blocks (```json), just the raw JSON string.
+    2. If you cannot find a paper with this SPECIFIC title and author, verdict is "FAKE".
+    3. If found, compare the real abstract with the User's Claim.
+       - If the claim completely misrepresents the content (e.g. wrong topic), verdict is "MISMATCH".
+       - If accurate, verdict is "REAL".
+    4. Provide a confidence score (0.0 - 1.0).
     """
+
+    # 定义严格的 JSON Schema
+    generation_config = {
+        "response_mime_type": "application/json",
+        "response_schema": {
+            "type": "OBJECT",
+            "properties": {
+                "verdict": {
+                    "type": "STRING",
+                    "enum": ["REAL", "FAKE", "MISMATCH", "UNVERIFIED"]
+                },
+                "confidence": {
+                    "type": "NUMBER"
+                },
+                "reason": {
+                    "type": "STRING"
+                },
+                "actual_paper_info": {
+                    "type": "STRING",
+                    "nullable": True
+                }
+            },
+            "required": ["verdict", "confidence", "reason"]
+        }
+    }
 
     payload = {
         "contents": [{
@@ -47,9 +68,7 @@ async def verify_with_google_search(title: str, author: str, claim_summary: str)
         "tools": [
             {"google_search": {}}
         ],
-        "generationConfig": {
-            "response_mime_type": "application/json"
-        },
+        "generationConfig": generation_config,
         "safetySettings": [
             {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
             {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
@@ -61,11 +80,12 @@ async def verify_with_google_search(title: str, author: str, claim_summary: str)
     headers = {"Content-Type": "application/json"}
 
     try:
+        # 使用异步请求
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(url, json=payload, headers=headers)
 
         if response.status_code != 200:
-            print(f"[Google Search API Error] Status: {response.status_code}")
+            print(f"[Google Search API Error] Status: {response.status_code} - {response.text}")
             return {
                 "verdict": "UNVERIFIED",
                 "confidence": 0.0,
@@ -85,6 +105,8 @@ async def verify_with_google_search(title: str, author: str, claim_summary: str)
 
         candidate = result['candidates'][0]
         finish_reason = candidate.get('finishReason')
+
+        # 安全过滤器拦截
         if finish_reason == 'SAFETY':
             return {
                 "verdict": "UNVERIFIED",
@@ -93,34 +115,21 @@ async def verify_with_google_search(title: str, author: str, claim_summary: str)
                 "actual_paper_info": None
             }
 
-        # === 核心解析逻辑 ===
+        # 解析
         try:
             parts = candidate['content']['parts']
-            # 拼接碎片
             raw_text = "".join([part.get('text', '') for part in parts])
 
-            # 清洗 Markdown 标记
-            text_content = re.sub(r'^```[a-z]*', '', raw_text.strip(), flags=re.MULTILINE | re.IGNORECASE)
-            text_content = re.sub(r'```$', '', text_content.strip(), flags=re.MULTILINE)
-            text_content = text_content.strip()
-
-            # 智能截取第一个 JSON 对象
-            start_idx = text_content.find('{')
-            if start_idx == -1:
-                raise ValueError("No JSON object found (missing '{')")
-
-            decoder = json.JSONDecoder()
-            parsed_json, _ = decoder.raw_decode(text_content, idx=start_idx)
-
+            # 因为指定了 response_schema，Gemini 保证返回的是合法的 JSON 字符串
+            parsed_json = json.loads(raw_text)
             return parsed_json
 
-        except Exception as e:
-            print(
-                f"[Google Search Parse Error] Failed to parse. Raw Text: {raw_text if 'raw_text' in locals() else 'Unknown'}")
+        except json.JSONDecodeError as e:
+            print(f"[Google Search Parse Error] JSON Decode Failed: {raw_text}")
             return {
                 "verdict": "UNVERIFIED",
                 "confidence": 0.0,
-                "reason": f"Failed to parse AI response: {str(e)}",
+                "reason": "Failed to parse AI response (JSON Error)",
                 "actual_paper_info": None
             }
 
