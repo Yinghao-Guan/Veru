@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { BookOpen, AlertCircle, CheckCircle, Search, AlertTriangle, Loader2, ShieldCheck, Database, Zap, Globe, History, Languages, Sparkles } from 'lucide-react';
+import { BookOpen, AlertCircle, CheckCircle, Search, AlertTriangle, Loader2, ShieldCheck, Database, Zap, Globe, History, Languages, Sparkles, Github } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import HistoryDrawer, { HistoryItem, AuditResult } from '../components/HistoryDrawer';
 import { translations, Language } from '../translations';
@@ -389,15 +389,32 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Footer */}
       <footer className="bg-slate-900 text-slate-400 py-12 border-t border-slate-800">
         <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center">
+
+            {/* 左侧：Logo */}
             <div className="flex items-center space-x-2 mb-4 md:mb-0">
                 <div className="w-6 h-6 bg-gradient-to-br from-blue-500 to-cyan-400 rounded-md flex items-center justify-center text-white font-bold text-xs">V</div>
                 <span className="font-bold text-slate-100 tracking-tight">Veru</span>
             </div>
-            <div className="text-sm">
-                &copy; {new Date().getFullYear()} Veru Audit. {t.rightsReserved}
+
+            {/* 右侧：GitHub 链接 + 版权信息 */}
+            <div className="flex items-center space-x-6">
+                <a
+                  href="https://github.com/Yinghao-Guan/Veru"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-slate-400 hover:text-white transition-colors p-1"
+                  aria-label="View Source on GitHub"
+                >
+                    <Github className="w-5 h-5" />
+                </a>
+                <div className="text-sm border-l border-slate-700 pl-6">
+                    &copy; {new Date().getFullYear()} Veru Audit. {t.rightsReserved}
+                </div>
             </div>
+
         </div>
       </footer>
     </div>
