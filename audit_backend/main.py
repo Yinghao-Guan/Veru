@@ -73,7 +73,12 @@ async def process_single_citation(cit) -> AuditResult:
     print(f"--- Auditing: {cit.title} ---")
 
     # 1. OpenAlex 查询 (await)
-    oa_result = await search_paper_on_openalex(cit.title, cit.author)
+    oa_result = await search_paper_on_openalex(
+        title=cit.title,
+        author=cit.author,
+        year=cit.year,
+        doi=cit.doi
+    )
 
     best_result = oa_result
     source_name = "OpenAlex"

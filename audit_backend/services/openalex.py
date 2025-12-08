@@ -49,14 +49,24 @@ async def fetch_from_openalex(params: dict) -> list:
     return []
 
 
-async def search_paper_on_openalex(title: Optional[str], author: Optional[str] = None) -> Dict[str, Any]:
-    # 如果 title 是 None，直接返回 False，防止崩溃
+async def search_paper_on_openalex(title: Optional[str], author: Optional[str] = None, year: Optional[str] = None,
+                                   doi: Optional[str] = None) -> Dict[str, Any]:
+    # --- 策略 0: DOI 精确查找 (最高优先级) ---
+    if doi:
+        # 清洗 DOI (去掉 https://doi.org/ 前缀)
+        clean_doi = doi.replace("https://doi.org/", "").replace("doi:", "").strip()
+        print(f"[OpenAlex] Searching by DOI: {clean_doi}")
+        results = await fetch_from_openalex({"filter": f"doi:https://doi.org/{clean_doi}"})
+        if results:
+            best_paper = results[0]
+            # 直接返回，无需评分
+            return _format_result(best_paper, found=True)
+
+    # --- 常规标题搜索 ---
     if not title:
         return {"found": False, "reason": "No title extracted"}
 
     clean_title = title.replace('"', '').replace("'", "").replace("“", "").replace("”", "").strip()
-
-    # 再次检查清洗后是否为空
     if len(clean_title) < 3:
         return {"found": False, "reason": "Title is too short"}
 
@@ -64,69 +74,99 @@ async def search_paper_on_openalex(title: Optional[str], author: Optional[str] =
     results = await fetch_from_openalex({
         "search": clean_title,
         "per_page": 20,
-        "mailto": "audit_test@veru.app"
+        "mailto": "audit_test@realibuddy.com"
     })
 
-    # 策略 2: 精准过滤
+    # 策略 2: 精准过滤 (如果宽泛搜索没结果)
     if not results and len(clean_title.split()) > 2:
         results = await fetch_from_openalex({
             "filter": f"title.search:{clean_title}",
             "per_page": 20,
-            "mailto": "audit_test@veru.app"
+            "mailto": "audit_test@realibuddy.com"
         })
 
     if not results:
         return {"found": False, "reason": "No matches found in OpenAlex"}
 
-    # 评分逻辑
+    # --- 智能评分逻辑 ---
     candidates = []
+    target_year = int(year) if (year and year.isdigit()) else None
+
     for paper in results:
         paper_authors = [a["author"]["display_name"] for a in paper.get("authorships", [])]
         paper_title = paper.get("title", "") or ""
+        paper_year = paper.get("publication_year")
 
-        is_auth_match = check_author_match(author, paper_authors)
+        # 1. 基础分：标题相似度 (0.0 - 1.0)
         title_sim = get_similarity_score(clean_title, paper_title)
 
+        # 2. 作者验证 (权重调整)
+        is_auth_match = check_author_match(author, paper_authors)
+
+        # 3. 年份验证 (允许 ±1 年误差)
+        is_year_match = False
+        if target_year and paper_year:
+            if abs(target_year - paper_year) <= 1:
+                is_year_match = True
+
+        # --- 综合打分 ---
+        final_score = title_sim
+
+        # 惩罚：作者不对，分数打 6 折
         if author and not is_auth_match:
-            title_sim *= 0.5
+            final_score *= 0.6
 
-        normalized_score = title_sim
+        # 奖励：年份匹配，增加置信度
+        if is_year_match:
+            final_score += 0.15
+
+            # 奖励：高引用数 (说明是重要论文，更可能是用户想引用的)
         citations = paper.get("cited_by_count", 0)
-
-        if title_sim > 0.85:
-            if citations > 1000:
-                normalized_score += 2.0
-            elif citations > 50:
-                normalized_score += 1.0
+        if citations > 100:
+            final_score += 0.05
 
         candidates.append({
             "paper": paper,
-            "sort_key": normalized_score,
-            "raw_score": title_sim
+            "score": final_score,
+            "raw_sim": title_sim
         })
 
-    candidates.sort(key=lambda x: (x['sort_key'], x['paper'].get('cited_by_count', 0)), reverse=True)
-
+    # 按分数降序排序
+    candidates.sort(key=lambda x: x['score'], reverse=True)
     best_candidate = candidates[0]
 
-    if best_candidate['raw_score'] < 0.6:
-        return {"found": False, "reason": f"Low similarity match ({best_candidate['raw_score']:.2f})"}
+    # 阈值判断：虽然我们要宽松，但如果原始标题相似度太低，依然算作失败
+    # 除非作者和年份都完全匹配
+    threshold = 0.6
 
-    best_paper = best_candidate['paper']
+    # 宽松特例：如果作者对且年份对，标题相似度只要 > 0.4 即可（应对标题简写）
+    if author and year and check_author_match(author, [a["author"]["display_name"] for a in
+                                                       best_candidate['paper'].get("authorships", [])]):
+        if abs(int(year) - (best_candidate['paper'].get("publication_year") or 0)) <= 1:
+            threshold = 0.4
+
+    if best_candidate['score'] < threshold:
+        return {"found": False, "reason": f"Low confidence match ({best_candidate['score']:.2f})"}
+
+    return _format_result(best_candidate['paper'], found=True)
+
+
+def _format_result(paper: dict, found: bool) -> dict:
+    """辅助函数：格式化 OpenAlex 返回的数据"""
     abstract_text = ""
-    inverted_idx = best_paper.get("abstract_inverted_index")
+    inverted_idx = paper.get("abstract_inverted_index")
     if inverted_idx:
         abstract_text = reconstruct_abstract(inverted_idx)
 
     return {
-        "found": True,
-        "title": best_paper.get("title"),
-        "doi": best_paper.get("doi"),
-        "year": str(best_paper.get("publication_year")),
-        "authors": [a["author"]["display_name"] for a in best_paper.get("authorships", [])[:3]],
-        "is_oa": best_paper.get("open_access", {}).get("is_oa", False),
-        "oa_url": best_paper.get("open_access", {}).get("oa_url", None),
+        "found": found,
+        "title": paper.get("title"),
+        "doi": paper.get("doi"),
+        "year": str(paper.get("publication_year")),
+        "authors": [a["author"]["display_name"] for a in paper.get("authorships", [])[:3]],
+        "is_oa": paper.get("open_access", {}).get("is_oa", False),
+        "oa_url": paper.get("open_access", {}).get("oa_url", None),
         "abstract": abstract_text,
-        "cited_by_count": best_paper.get("cited_by_count", 0),
-        "id": best_paper.get("id")
+        "cited_by_count": paper.get("cited_by_count", 0),
+        "id": paper.get("id")
     }

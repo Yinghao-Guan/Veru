@@ -18,7 +18,8 @@ class CitationData(BaseModel):
     raw_text: str
     title: Optional[str] = None
     author: Optional[str] = None
-    year: Optional[str] = None  # 虽然这里定义是 str，但在下面代码里会强制转换
+    year: Optional[str] = None
+    doi: Optional[str] = None
     summary_intent: str
     specific_claims: List[str] = []
 
@@ -47,38 +48,38 @@ def extract_citations_from_text(text: str) -> List[CitationData]:
     model = genai.GenerativeModel('gemini-2.0-flash')
 
     prompt = f"""
-    You are a forensic text auditor. 
-    Analyze the text and extract ALL academic papers mentioned.
+        You are a forensic text auditor. 
+        Analyze the text and extract ALL academic papers mentioned.
 
-    CRITICAL INSTRUCTION - ANTI-HALLUCINATION:
-    1. Extract the summary and claims EXACTLY AS WRITTEN in the text.
-    2. DO NOT correct the text using your internal knowledge. 
-    3. If the text says "ResNet is used for cooking spaghetti", you MUST extract "cooking spaghetti" as the summary.
-    4. Your job is to capture the User's potential lies/errors verbatim.
+        CRITICAL INSTRUCTION - ANTI-HALLUCINATION:
+        1. Extract the summary and claims EXACTLY AS WRITTEN.
+        2. DO NOT correct user errors.
 
-    For each paper mentioned:
-    1. raw_text: The specific substring.
-    2. title: Extract the likely title.
-    3. author: Extract the likely author.
-    4. year: Extract year if mentioned, else null.
-    5. summary_intent: What does the TEXT claim this paper is about? (Verbatim extraction).
-    6. specific_claims: Extract specific facts/methodologies attributed to this paper.
+        For each paper mentioned:
+        1. raw_text: The specific substring.
+        2. title: Extract the likely title.
+        3. author: Extract the likely author.
+        4. year: Extract year if mentioned (string), else null.
+        5. doi: Extract DOI if explicitly mentioned (e.g. "10.1038/s41586..."), else null.  <--- [新增]
+        6. summary_intent: What does the TEXT claim this paper is about?
+        7. specific_claims: Extract specific facts attributed to this paper.
 
-    Output ONLY valid JSON list:
-    [
-        {{
-            "id": 1,
-            "raw_text": "...",
-            "title": "...",
-            "author": "...",
-            "year": "2023", 
-            "summary_intent": "...",
-            "specific_claims": []
-        }}
-    ]
+        Output ONLY valid JSON list:
+        [
+            {{
+                "id": 1,
+                "raw_text": "...",
+                "title": "...",
+                "author": "...",
+                "year": "2023",
+                "doi": "10.xxxx/...", 
+                "summary_intent": "...",
+                "specific_claims": []
+            }}
+        ]
 
-    Input Text:
-    {text}
+        Input Text:
+        {text}
     """
 
     try:
