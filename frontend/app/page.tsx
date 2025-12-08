@@ -273,12 +273,13 @@ export default function Home() {
                 />
 
                 <div className="p-4 bg-white border-t border-slate-50 flex justify-between items-center">
-                  <span className="text-xs text-slate-400">
-                    {inputText.length} {t.charCount}
+                  <span className={`text-xs ${inputText.length > 5000 ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
+                    {inputText.length} / 5,000 {t.charCount}
                   </span>
                   <button
                     onClick={handleAudit}
-                    disabled={loading || !inputText}
+                    // 如果超限，禁用按钮
+                    disabled={loading || !inputText || inputText.length > 5000}
                     className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-xl font-bold transition-all flex items-center disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-xl active:scale-95"
                   >
                     {loading ? (
