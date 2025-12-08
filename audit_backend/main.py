@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, validator
 from typing import List, Optional
 import uvicorn
 import re
@@ -43,7 +43,14 @@ app.add_middleware(
 )
 
 class AuditRequest(BaseModel):
-    text: str
+    # 限制最大长度为 5,000 字符
+    text: str = Field(..., max_length=5000, description="Input text to audit")
+
+    @validator('text')
+    def prevent_empty(cls, v):
+        if not v.strip():
+            raise ValueError('Text cannot be empty')
+        return v
 
 
 class AuditResult(BaseModel):
@@ -70,6 +77,13 @@ def audit_citations(request: Request, body: AuditRequest):
 
     # 从 body 中获取 text
     citations = extract_citations_from_text(body.text)
+
+    # 安全熔断：最多只处理前 10 个引用
+    # 如果用户真的有更多，让他们分批提交
+    MAX_CITATIONS = 10
+    if len(citations) > MAX_CITATIONS:
+        citations = citations[:MAX_CITATIONS]
+        print(f"⚠️ Truncated citations to {MAX_CITATIONS} for safety.")
 
     results = []
 
