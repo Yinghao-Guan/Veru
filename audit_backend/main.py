@@ -39,6 +39,7 @@ origins = [
     "https://veru.app",
     "https://www.veru.app",
     "https://truvio.vercel.app",
+    "https://positive-sharai-peterguan-44ca59b2.koyeb.app",
 ]
 
 app.add_middleware(
